@@ -34,7 +34,7 @@ def gen_dataset(devices, T=200):
     sample_additive = lambda x: max(0, np.dot(x, devices) + np.random.randn()*SIGMA)
     X[0] = np.random.rand(D) < P_INIT
     Y[0] = sample_additive(X[0])
-    for t in xrange(1,T):
+    for t in range(1,T):
         X[t] = (TRANSITION[X[t-1]].cumsum(1) < np.random.rand(D,1)).sum(1)
         Y[t] = sample_additive(X[t])
         
@@ -47,7 +47,7 @@ def get_training_data(batch_size, devices):
     T = 51
     batch_size /= (T-1)
     data = np.empty((batch_size*(T-1), 2*D+1))
-    for i in xrange(batch_size):
+    for i in range(batch_size):
         X, Y = gen_dataset(devices, T)
         inputs = np.hstack((X[:-1],Y[1:,None]))
         outputs = X[1:]
@@ -82,7 +82,7 @@ def training_step(optimizer, dist_est, devices, dataset_size, batch_size, max_lo
     missteps = 0
     num_batches = float(synthetic_ins.shape[0])/batch_size
 
-    for local_iter in xrange(max_local_iters):
+    for local_iter in range(max_local_iters):
     
         train_err = 0 
         for inputs, outputs in _iterate_minibatches(synthetic_ins, synthetic_outs, batch_size):
@@ -115,7 +115,7 @@ def training_step(optimizer, dist_est, devices, dataset_size, batch_size, max_lo
 def baseline_proposal(x, y):
     next_x = np.zeros_like(x)
     K, D = x.shape
-    for k in xrange(K):
+    for k in range(K):
         next_x[k] = (TRANSITION[x[k]].cumsum(1) < np.random.rand(D,1)).sum(1)
     ln_q = np.sum(np.log(TRANSITION[0,0]) * (next_x == x) + 
                   np.log(TRANSITION[0,1]) * (next_x != x), 1)
@@ -153,7 +153,7 @@ def run_smc(devices, Y, K, proposal, verbose=True):
         X_hat = X_hat[systematic_resample(log_weights)]
         log_weights[:] = 0.0 # np.log(np.mean(np.exp(log_weights)))
     ancestry[:,0] = np.arange(K)
-    for t in xrange(1,len(Y)):
+    for t in range(1,len(Y)):
         X_hat[:,t], ln_q = proposal(X_hat[:,t-1], Y[t])
         ln_p_trans = np.sum(np.log(TRANSITION[0,0]) * (X_hat[:,t] == X_hat[:,t-1]) + 
                             np.log(TRANSITION[0,1]) * (X_hat[:,t] != X_hat[:,t-1]), 1)
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     if os.path.exists(outfile):
         shutil.copyfile(outfile, '{}.backup'.format(outfile))
 
-    for i in xrange(num_iterations):
+    for i in range(num_iterations):
         verbose = True
         print "["+str(1+len(trace_train))+"]",
         t,v,_ = training_step(optimizer, dist_est, devices, dataset_size, batch_size, max_local_iters=10, verbose=True)

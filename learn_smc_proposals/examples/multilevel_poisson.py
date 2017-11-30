@@ -61,7 +61,7 @@ def generate_synthetic(model, size=100):
     ins_theta, outs_theta = None, None
     ins_params, outs_params = None, None
     #while len(ins_params) < size:
-    for i in xrange(size-1):
+    for i in range(size-1):
         try:
             model.draw_from_prior()
             if np.min(get_target_params(model).ravel()) < 1e-5 or \
@@ -110,7 +110,7 @@ def training_step(target_model, batch_size, max_local_iters, misstep_tolerance=0
 #     backup = estimators[target_model].state_dict()
     validation_err = -estimators[target_model].logpdf(validation_data[0], validation_data[1]).mean()
     validation_err = validation_err.data[0]
-    for local_iter in xrange(max_local_iters):
+    for local_iter in range(max_local_iters):
         train_err = 0 
         for inputs, outputs in _iterate_minibatches(synthetic_data[0], synthetic_data[1], batch_size):
             optimizers[target_model].zero_grad()
@@ -169,7 +169,7 @@ if __name__ == '__main__':
     if os.path.exists(file2):
         shutil.copyfile(file2, '{}.backup'.format(file2))
 
-    for i in xrange(num_steps):
+    for i in range(num_steps):
         for target_model in [0,1]:
             verbose = True #  (i+1) % 1 == 0
             if verbose:
