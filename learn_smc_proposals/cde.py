@@ -31,7 +31,7 @@ def create_mask(D_observed, D_latent, H, num_layers):
 
 class MaskedLinear(nn.Linear):
     def __init__(self, in_features, out_features, mask, bias=True):
-        """ Linear layer, but with a mask. 
+        """ Linear layer, but with a mask.
             Mask should be a tensor of size (out_features, in_features). """
         super(MaskedLinear, self).__init__(in_features, out_features, bias)
         self.register_buffer('mask', mask)
@@ -50,7 +50,7 @@ class AbstractConditionalMADE(nn.Module):
         self.D_in = D_observed + D_latent
         self.D_out = D_latent
         assert num_layers >= 1
-    
+
         # create masks
         M_W, M_V, M_A = create_mask(D_observed, D_latent, H, num_layers)
         self.M_W = [torch.FloatTensor(M) for M in M_W]
@@ -62,25 +62,25 @@ class AbstractConditionalMADE(nn.Module):
 
     def forward(self, x):
         raise NotImplementedError()
-        
+
     def sample(self, parents):
         raise NotImplementedError()
-        
+
     def logpdf(self, parents, values):
         raise NotImplementedError()
 
     def propose(self, parents, ns=1):
-        """ Given a setting of the observed (parent) random variables, sample values of 
-            the latents; returns a tuple of both the values and the log probability under 
+        """ Given a setting of the observed (parent) random variables, sample values of
+            the latents; returns a tuple of both the values and the log probability under
             the proposal.
-        
-            If ns > 1, each of the tensors has an added first dimension of ns, each 
+
+            If ns > 1, each of the tensors has an added first dimension of ns, each
             containing a sample of size [batch_size, D_latent] and [batch_size] """
         original_batch_size = parents.size(0)
         if ns > 1:
             parents = parents.repeat(ns,1)
         values = self.sample(parents)
-        ln_q = self.logpdf(parents, values)        
+        ln_q = self.logpdf(parents, values)
         if ns > 1:
             values = values.resize(ns, original_batch_size, self.D_out)
             ln_q = ln_q.resize(ns, original_batch_size)
@@ -90,7 +90,7 @@ class AbstractConditionalMADE(nn.Module):
 class ConditionalBinaryMADE(AbstractConditionalMADE):
     def __init__(self, D_observed, D_latent, H, num_layers):
         super(ConditionalBinaryMADE, self).__init__(D_observed, D_latent, H, num_layers)
-        
+
         # layers
         layers = [MaskedLinear(self.D_in, H, self.M_W[0])]
         for i in range(1,num_layers):
@@ -101,7 +101,7 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
         self.p = MaskedLinear(H, self.D_out, self.M_V)
         self.q = MaskedLinear(H, self.D_out, self.M_V)
         self.loss = nn.BCELoss(size_average=True)
-        
+
         # initialize parameters
         for param in self.parameters():
             if len(param.size()) == 1:
@@ -134,7 +134,7 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
             full_input = torch.cat((parents, latent), 1)
             latent = torch.ge(self(full_input), randvals).float()
         return latent
-    
+
     def logpdf(self, parents, values):
         """ Return the conditional log probability `ln p(values|parents)` """
         p = self.forward(torch.cat((parents, values), 1))
@@ -146,10 +146,10 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
 class ConditionalRealValueMADE(AbstractConditionalMADE):
     def __init__(self, D_observed, D_latent, H, num_layers, num_components):
         super(ConditionalRealValueMADE, self).__init__(D_observed, D_latent, H, num_layers)
-        
+
         self.K = num_components
         self.softplus = nn.Softplus()
-        
+
         layers = [MaskedLinear(self.D_in, H, self.M_W[0])]
         for i in range(1,num_layers):
             layers.append(MaskedLinear(H, H, self.M_W[i]))
@@ -168,7 +168,7 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
         self.alpha = nn.ModuleList(alpha)
         self.mu = nn.ModuleList(mu)
         self.sigma = nn.ModuleList(sigma)
-    
+
         # initialize parameters
         for param in self.parameters():
             if len(param.size()) == 1:
@@ -183,21 +183,21 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
         log_alpha = [self.alpha[k](h) + self.skip_alpha[k](x) for k in range(self.K)]
         mu = [self.mu[k](h) + self.skip_mu[k](x) for k in range(self.K)]
         sigma = [self.softplus(self.sigma[k](h) + self.skip_sigma[k](x)) for k in range(self.K)]
-        
-        alpha = torch.cat(map(lambda x: x.unsqueeze(2), log_alpha), 2)
+
+        alpha = torch.cat(list(map(lambda x: x.unsqueeze(2), log_alpha)), 2)
         A, _ = torch.max(alpha, 2, keepdim=True)
         tmp = torch.sum((alpha - A.expand(alpha.size())).exp_(), 2, keepdim=True).log()
         log_normalizer = tmp + A
         alpha = (alpha - log_normalizer.expand(alpha.size())).exp_()
-        mu = torch.cat(map(lambda x: x.unsqueeze(2), mu), 2)
-        sigma = torch.cat(map(lambda x: x.unsqueeze(2), sigma), 2)
+        mu = torch.cat(list(map(lambda x: x.unsqueeze(2), mu)), 2)
+        sigma = torch.cat(list(map(lambda x: x.unsqueeze(2), sigma)), 2)
         sigma = torch.clamp(sigma, min=1e-6)
-        
+
         return alpha, mu, sigma
-        
+
     def sample(self, parents, ns=1):
         """ Given a setting of the observed (parent) random variables, sample values of the latents.
-        
+
             If ns > 1, returns a tensor whose first dimension is ns, each containing a sample
             of size [batch_size, D_latent] """
         assert parents.size(1) == self.D_in - self.D_out
@@ -205,8 +205,8 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
         if ns > 1:
             parents = parents.repeat(ns,1)
         batch_size = parents.size(0)
-            
-        
+
+
         # sample noise variables
         FloatTensor = torch.cuda.FloatTensor if parents.is_cuda else torch.FloatTensor
         latent = Variable(torch.zeros(batch_size, self.D_out))
@@ -225,19 +225,19 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
             one_hot = torch.zeros(alpha.size())
             if parents.is_cuda: one_hot = one_hot.cuda()
             one_hot = one_hot.scatter_(2, z.data.unsqueeze(-1), 1).squeeze_().byte()
-            tmp = randvals.data * sigma.data[one_hot].view(z.size()) 
+            tmp = randvals.data * sigma.data[one_hot].view(z.size())
             latent = Variable(tmp + mu.data[one_hot].view(z.size()))
         if ns > 1:
             latent = latent.resize(ns, original_batch_size, self.D_out)
         return latent
-        
+
     def logpdf(self, parents, values):
         """ Return the conditional log probability `ln p(values|parents)` """
         full_input = torch.cat((parents, values), 1)
         alpha, mu, sigma = self(full_input)
         eps = 1e-6 # need to prevent hard zeros
         alpha = torch.clamp(alpha, eps, 1.0-eps)
-        
+
         const = sigma.pow(2).mul_(2*np.pi).log().mul_(0.5)
         normpdfs = (values[:,:,None].expand(mu.size()) - mu).div(sigma).pow(2).div_(2).add_(const).mul_(-1)
         lw = normpdfs + alpha.log()
