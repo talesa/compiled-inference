@@ -43,7 +43,6 @@ class MaskedLinear(nn.Linear):
         else:
             return F.linear(input, self.weight*mask, self.bias)
 
-
 class AbstractConditionalMADE(nn.Module):
     def __init__(self, D_observed, D_latent, H, num_layers):
         super(AbstractConditionalMADE, self).__init__()
@@ -116,28 +115,39 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
         epsilon = 1e-8
         logp = self.p(h) + self.skip_p(x) + epsilon
         logq = self.q(h) + self.skip_q(x) + epsilon
-        A = torch.max(logp, logq, keepdim=True)
+        A = torch.max(logp, logq)
         normalizer = ((logp - A).exp_() + (logq - A).exp_()).log() + A
 #         assert (1 - np.isfinite(normalizer.data.numpy())).sum() == 0
         logp -= normalizer
         return logp.exp_()
 
-    def sample(self, parents):
+    def sample(self, parents=None, cuda=False):
         """ Given a setting of the observed (parent) random variables, sample values of the latents """
-        assert parents.size(1) == self.D_in - self.D_out
-        batch_size = parents.size(0)
-        FloatTensor = torch.cuda.FloatTensor if parents.is_cuda else torch.FloatTensor
+        have_parents = not self.D_in - self.D_out == 0
+        if have_parents:
+            assert parents.size(1) == self.D_in - self.D_out
+            batch_size = parents.size(0)
+        else:
+            batch_size = 1
+        FloatTensor = torch.cuda.FloatTensor if cuda or parents.is_cuda else torch.FloatTensor
         latent = Variable(FloatTensor(batch_size, self.D_out))
         randvals = Variable(FloatTensor(batch_size, self.D_out))
         torch.rand(batch_size, self.D_out, out=randvals.data)
         for d in range(self.D_out):
-            full_input = torch.cat((parents, latent), 1)
+            if have_parents:
+                full_input = torch.cat((parents, latent), 1)
+            else:
+                full_input = latent
             latent = torch.ge(self(full_input), randvals).float()
         return latent
 
     def logpdf(self, parents, values):
         """ Return the conditional log probability `ln p(values|parents)` """
-        p = self.forward(torch.cat((parents, values), 1))
+        have_parents = not self.D_in - self.D_out == 0
+        if have_parents:
+            p = self.forward(torch.cat((parents, values), 1))
+        else:
+            p = self.forward(values)
         p = torch.clamp(p, 1e-6, 1.0 - 1e-6)
         return -self.loss(p, values)*values.size(1)
 

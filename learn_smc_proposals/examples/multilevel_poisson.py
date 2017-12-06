@@ -14,26 +14,26 @@ num_points = 10 # number of points in the synthetic dataset we train on
 def gamma_poisson(x, t):
     """ x: number of failures (N vector)
         t: operation time, thousands of hours (N vector) """
-    
+
     if x is not None:
         N = x.shape
     else:
         N = num_points
-    
+
     # place an exponential prior on t, for when it is unknown
     t = pymc.Exponential('t', beta=1.0/50.0, value=t, size=N, observed=(t is not None))
-    
+
     alpha = pymc.Exponential('alpha', beta=1.0, value=1.0)
     beta = pymc.Gamma('beta', alpha=0.1, beta=1.0, value=1.0)
-    
+
     theta = pymc.Gamma('theta', alpha=alpha, beta=beta, size=N)
-    
+
     @pymc.deterministic
     def mu(theta=theta, t=t):
         return theta*t
 
     x = pymc.Poisson('x', mu=mu, value=x, observed=(x is not None))
-    
+
     return locals()
 
 sample_test_points = lambda: num_points
@@ -61,7 +61,7 @@ def generate_synthetic(model, size=100):
     ins_theta, outs_theta = None, None
     ins_params, outs_params = None, None
     #while len(ins_params) < size:
-    for i in range(size-1):
+    for i in range(int(size)-1):
         try:
             model.draw_from_prior()
             if np.min(get_target_params(model).ravel()) < 1e-5 or \
@@ -106,12 +106,12 @@ def training_step(target_model, batch_size, max_local_iters, misstep_tolerance=0
 
     missteps = 0
     num_batches = float(dataset_size)/batch_size
-    
+
 #     backup = estimators[target_model].state_dict()
     validation_err = -estimators[target_model].logpdf(validation_data[0], validation_data[1]).mean()
     validation_err = validation_err.data[0]
     for local_iter in range(max_local_iters):
-        train_err = 0 
+        train_err = 0
         for inputs, outputs in _iterate_minibatches(synthetic_data[0], synthetic_data[1], batch_size):
             optimizers[target_model].zero_grad()
             if USE_GPU:
@@ -122,7 +122,7 @@ def training_step(target_model, batch_size, max_local_iters, misstep_tolerance=0
             optimizers[target_model].step()
             train_err += loss.data[0]/num_batches
 
-            
+
         next_validation_err = -estimators[target_model].logpdf(*validation_data).mean()
 #         if np.isnan(train_err) or np.isnan(next_validation_err.data[0]):
 #             estimators[target_model].load_state_dict(backup)
@@ -135,7 +135,7 @@ def training_step(target_model, batch_size, max_local_iters, misstep_tolerance=0
 
     if verbose:
         print round(train_err, 4), round(validation_err, 4), "(", local_iter+1, ")",
-        
+
     return train_err, validation_err, local_iter+1
 
 def get_estimators():
@@ -186,4 +186,3 @@ if __name__ == '__main__':
         if USE_GPU:
             theta_est.cuda()
             params_est.cuda()
-        
