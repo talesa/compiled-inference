@@ -116,7 +116,7 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
         epsilon = 1e-8
         logp = self.p(h) + self.skip_p(x) + epsilon
         logq = self.q(h) + self.skip_q(x) + epsilon
-        A = torch.max(logp, logq, keepdim=True)
+        A = torch.max(logp, logq)
         normalizer = ((logp - A).exp_() + (logq - A).exp_()).log() + A
 #         assert (1 - np.isfinite(normalizer.data.numpy())).sum() == 0
         logp -= normalizer
