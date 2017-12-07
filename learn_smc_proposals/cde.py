@@ -116,10 +116,10 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
         logp = self.p(h) + self.skip_p(x) + epsilon
         logq = self.q(h) + self.skip_q(x) + epsilon
         A = torch.max(logp, logq)
-        normalizer = ((logp - A).exp_() + (logq - A).exp_()).log() + A
-#         assert (1 - np.isfinite(normalizer.data.numpy())).sum() == 0
-        logp -= normalizer
-        return logp.exp_()
+        normalizer = torch.log(torch.exp(logp - A) + torch.exp(logq - A)) + A
+        # assert((1 - np.isfinite(normalizer.data.cpu().numpy())).sum() == 0)
+        logp = logp - normalizer
+        return torch.exp(logp)
 
     def sample(self, parents=None, cuda=False):
         """ Given a setting of the observed (parent) random variables, sample values of the latents """
@@ -137,19 +137,20 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
             if have_parents:
                 full_input = torch.cat((parents, latent), 1)
             else:
-                full_input = latent
+                full_input = latent.clone()
             latent = torch.ge(self(full_input), randvals).float()
         return latent
 
-    def logpdf(self, parents, values):
+    def logpdf(self, values, parents=None):
         """ Return the conditional log probability `ln p(values|parents)` """
         have_parents = not self.D_in - self.D_out == 0
         if have_parents:
             p = self.forward(torch.cat((parents, values), 1))
         else:
             p = self.forward(values)
+
         p = torch.clamp(p, 1e-6, 1.0 - 1e-6)
-        return -self.loss(p, values)*values.size(1)
+        return -self.loss(p, values) * values.size(1)
 
 
 
