@@ -258,3 +258,88 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
         A, _ = torch.max(lw, 2, keepdim=True)
         weighted_normal = (torch.sum((lw - A.expand(lw.size())).exp(), 2, keepdim=True).log() + A).squeeze(2)
         return torch.sum(weighted_normal, 1, keepdim=True)
+
+
+class ConditionalRealValueMADEReparamNormal(AbstractConditionalMADE):
+    def __init__(self, D_observed, D_latent, H, num_layers):
+        super(ConditionalRealValueMADE, self).__init__(D_observed, D_latent, H, num_layers)
+
+        self.softplus = nn.Softplus()
+
+        layers = [MaskedLinear(self.D_in, H, self.M_W[0])]
+        for i in range(1,num_layers):
+            layers.append(MaskedLinear(H, H, self.M_W[i]))
+        self.layers = nn.ModuleList(layers)
+
+        self.skip_mu = MaskedLinear(self.D_in, self.D_out, self.M_A, bias=False)
+        self.skip_sigma = MaskedLinear(self.D_in, self.D_out, self.M_A, bias=False)
+        self.mu = MaskedLinear(H, self.D_out, self.M_V)
+        self.sigma = MaskedLinear(H, self.D_out, self.M_V)
+
+        # initialize parameters
+        for param in self.parameters():
+            if len(param.size()) == 1:
+                init.normal(param, std=0.01)
+            else:
+                init.uniform(param, a=-0.01, b=0.01)
+
+    def forward(self, x):
+        h = x
+        for i, layer in enumerate(self.layers):
+            h = self.relu(layer(h))
+
+        mu = self.mu(h) + self.skip_mu(x)
+        sigma = self.softplus(self.sigma(h) + self.skip_sigma(x))
+
+        # TODO: check here
+        # mu = torch.cat(list(map(lambda x: x.unsqueeze(2), mu)), 2)
+        # sigma = torch.cat(list(map(lambda x: x.unsqueeze(2), sigma)), 2)
+        sigma = torch.clamp(sigma, min=1e-6)
+
+        return mu, sigma
+
+    def sample(self, parents, ns=1):
+        """ Given a setting of the observed (parent) random variables, sample values of the latents.
+
+            If ns > 1, returns a tensor whose first dimension is ns, each containing a sample
+            of size [batch_size, D_latent] """
+        assert parents.size(1) == self.D_in - self.D_out
+        original_batch_size = parents.size(0)
+        if ns > 1:
+            parents = parents.repeat(ns,1)
+        batch_size = parents.size(0)
+
+        # sample noise variables
+        FloatTensor = torch.cuda.FloatTensor if parents.is_cuda else torch.FloatTensor
+        latent = Variable(torch.zeros(batch_size, self.D_out))
+        randvals = Variable(torch.FloatTensor(batch_size, self.D_out))
+        torch.randn(batch_size, self.D_out, out=randvals.data)
+
+        if parents.is_cuda:
+            latent = latent.cuda()
+            randvals = randvals.cuda()
+
+        for d in range(self.D_out):
+            full_input = torch.cat((parents, latent), 1)
+            mu, sigma = self(full_input)
+            latent = Variable(randvals.data * sigma + mu)
+        if ns > 1:
+            latent = latent.resize(ns, original_batch_size, self.D_out)
+        return latent
+
+    def logpdf(self, parents, values):
+        """ Return the conditional log probability `ln p(values|parents)` """
+        full_input = torch.cat((parents, values), 1)
+        alpha, mu, sigma = self(full_input)
+        eps = 1e-6 # need to prevent hard zeros
+        alpha = torch.clamp(alpha, eps, 1.0-eps)
+
+        const = sigma.pow(2).mul_(2*np.pi).log().mul_(0.5)
+        normpdfs = (values[:,:,None].expand(mu.size()) - mu).div(sigma).pow(2).div_(2).add_(const).mul_(-1)
+        lw = normpdfs + alpha.log()
+#         print "norm", normpdfs, normpdfs.sum()
+#         print "alph", alpha.log(), alpha.log().sum()
+        # need to do log-sum-exp along dimension 2
+        A, _ = torch.max(lw, 2, keepdim=True)
+        weighted_normal = (torch.sum((lw - A.expand(lw.size())).exp(), 2, keepdim=True).log() + A).squeeze(2)
+        return torch.sum(weighted_normal, 1, keepdim=True)
