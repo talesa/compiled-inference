@@ -135,7 +135,7 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
         torch.rand(batch_size, self.D_out, out=randvals.data)
         for d in range(self.D_out):
             if have_parents:
-                full_input = torch.cat((parents, latent), 1)
+                full_input = torch.cat([parents, latent], 1)
             else:
                 full_input = latent.clone()
             latent = torch.ge(self(full_input), randvals).float()
@@ -145,7 +145,7 @@ class ConditionalBinaryMADE(AbstractConditionalMADE):
         """ Return the conditional log probability `ln p(values|parents)` """
         have_parents = not self.D_in - self.D_out == 0
         if have_parents:
-            p = self.forward(torch.cat((parents, values), 1))
+            p = self.forward(torch.cat([parents, values], 1))
         else:
             p = self.forward(values)
 
@@ -230,7 +230,7 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
             gumbel = gumbel.cuda()
 
         for d in range(self.D_out):
-            full_input = torch.cat((parents, latent), 1)
+            full_input = torch.cat([parents, latent], 1)
             alpha, mu, sigma = self(full_input)
             _, z = torch.max(alpha.log() + gumbel, 2, keepdim=False)
             one_hot = torch.zeros(alpha.size())
@@ -244,7 +244,7 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
 
     def logpdf(self, parents, values):
         """ Return the conditional log probability `ln p(values|parents)` """
-        full_input = torch.cat((parents, values), 1)
+        full_input = torch.cat([parents, values], 1)
         alpha, mu, sigma = self(full_input)
         eps = 1e-6 # need to prevent hard zeros
         alpha = torch.clamp(alpha, eps, 1.0-eps)
