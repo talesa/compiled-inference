@@ -330,16 +330,31 @@ class ConditionalRealValueMADEReparamNormal(AbstractConditionalMADE):
     def logpdf(self, parents, values):
         """ Return the conditional log probability `ln p(values|parents)` """
         full_input = torch.cat((parents, values), 1)
-        alpha, mu, sigma = self(full_input)
-        eps = 1e-6 # need to prevent hard zeros
-        alpha = torch.clamp(alpha, eps, 1.0-eps)
+        mu, sigma = self(full_input)
 
+        # values - [batch size, D_out]
+        # mu - [batch size, D_out]
+        # sigma - [batch size, D_out]
+        
         const = sigma.pow(2).mul_(2*np.pi).log().mul_(0.5)
-        normpdfs = (values[:,:,None].expand(mu.size()) - mu).div(sigma).pow(2).div_(2).add_(const).mul_(-1)
-        lw = normpdfs + alpha.log()
+        
+        # >>> x = Variable(torch.randn(5, 5))
+        # >>> y = Variable(torch.randn(5, 5))
+        # >>> z = Variable(torch.randn(5, 5), requires_grad=True)
+        # >>> a = x + y
+        # >>> a.requires_grad
+        # False
+        # >>> b = a + z
+        # >>> b.requires_grad
+        # True
+        # 
+        # log of norm pdf
+        normpdfs = (values - mu).div(sigma).pow(2).div_(2).add_(const).mul_(-1)
+        
 #         print "norm", normpdfs, normpdfs.sum()
 #         print "alph", alpha.log(), alpha.log().sum()
-        # need to do log-sum-exp along dimension 2
-        A, _ = torch.max(lw, 2, keepdim=True)
-        weighted_normal = (torch.sum((lw - A.expand(lw.size())).exp(), 2, keepdim=True).log() + A).squeeze(2)
+        
+        # need to do log-sum-exp trick along dimension 2
+        A, _ = torch.max(normpdfs, 2, keepdim=True)
+        weighted_normal = (torch.sum((normpdfs - A.expand(normpdfs.size())).exp(), 2, keepdim=True).log() + A).squeeze(2)
         return torch.sum(weighted_normal, 1, keepdim=True)
