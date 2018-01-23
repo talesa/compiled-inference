@@ -248,12 +248,16 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
         alpha, mu, sigma = self(full_input)
         eps = 1e-6 # need to prevent hard zeros
         alpha = torch.clamp(alpha, eps, 1.0-eps)
-
+        
+        # alpha, mu, sigma: [batch_size, D_out, num_components]
         const = sigma.pow(2).mul_(2*np.pi).log().mul_(0.5)
+        
+        # normpdfs: [batch_size, D_out, num_components]
         normpdfs = (values[:,:,None].expand(mu.size()) - mu).div(sigma).pow(2).div_(2).add_(const).mul_(-1)
         lw = normpdfs + alpha.log()
 #         print "norm", normpdfs, normpdfs.sum()
 #         print "alph", alpha.log(), alpha.log().sum()
+
         # need to do log-sum-exp along dimension 2
         A, _ = torch.max(lw, 2, keepdim=True)
         weighted_normal = (torch.sum((lw - A.expand(lw.size())).exp(), 2, keepdim=True).log() + A).squeeze(2)
@@ -262,7 +266,7 @@ class ConditionalRealValueMADE(AbstractConditionalMADE):
 
 class ConditionalRealValueMADEReparamNormal(AbstractConditionalMADE):
     def __init__(self, D_observed, D_latent, H, num_layers):
-        super(ConditionalRealValueMADE, self).__init__(D_observed, D_latent, H, num_layers)
+        super(ConditionalRealValueMADEReparamNormal, self).__init__(D_observed, D_latent, H, num_layers)
 
         self.softplus = nn.Softplus()
 
@@ -320,16 +324,19 @@ class ConditionalRealValueMADEReparamNormal(AbstractConditionalMADE):
             randvals = randvals.cuda()
 
         for d in range(self.D_out):
-            full_input = torch.cat((parents, latent), 1)
+            full_input = torch.cat([parents, latent], 1)
             mu, sigma = self(full_input)
-            latent = Variable(randvals.data * sigma + mu)
+            latent = randvals * sigma + mu
         if ns > 1:
             latent = latent.resize(ns, original_batch_size, self.D_out)
         return latent
 
-    def logpdf(self, parents, values):
+    def logpdf(self, parents=None, values=None):
         """ Return the conditional log probability `ln p(values|parents)` """
-        full_input = torch.cat((parents, values), 1)
+        if parents is not None:
+            full_input = torch.cat((parents, values), 1)
+        else:
+            full_input = values
         mu, sigma = self(full_input)
 
         # values - [batch size, D_out]
@@ -337,24 +344,8 @@ class ConditionalRealValueMADEReparamNormal(AbstractConditionalMADE):
         # sigma - [batch size, D_out]
         
         const = sigma.pow(2).mul_(2*np.pi).log().mul_(0.5)
-        
-        # >>> x = Variable(torch.randn(5, 5))
-        # >>> y = Variable(torch.randn(5, 5))
-        # >>> z = Variable(torch.randn(5, 5), requires_grad=True)
-        # >>> a = x + y
-        # >>> a.requires_grad
-        # False
-        # >>> b = a + z
-        # >>> b.requires_grad
-        # True
-        # 
+         
         # log of norm pdf
         normpdfs = (values - mu).div(sigma).pow(2).div_(2).add_(const).mul_(-1)
         
-#         print "norm", normpdfs, normpdfs.sum()
-#         print "alph", alpha.log(), alpha.log().sum()
-        
-        # need to do log-sum-exp trick along dimension 2
-        A, _ = torch.max(normpdfs, 2, keepdim=True)
-        weighted_normal = (torch.sum((normpdfs - A.expand(normpdfs.size())).exp(), 2, keepdim=True).log() + A).squeeze(2)
-        return torch.sum(weighted_normal, 1, keepdim=True)
+        return torch.sum(normpdfs, 1, keepdim=True)
