@@ -1,5 +1,5 @@
 # Local installation command
-`python setup.py install`
+`pip install git+git://github.com/talesa/compiled-inference`
 
 # Learn proposal distributions for importance sampling and SMC
 
